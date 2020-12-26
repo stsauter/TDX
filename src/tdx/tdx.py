@@ -20,6 +20,7 @@ class Tdx:
         psi = -np.log(.5) / (halflife * tmax)
         t = np.max(t_train) - t_train
         w = np.exp(-psi * t)
+        w = w.reshape(w.shape[0], 1)
 
         u_tilde = np.zeros((self.m, self.m - 1)) + (-np.triu(np.ones((self.m, self.m - 1))))
         for col_idx in range(self.m - 1):
@@ -45,6 +46,8 @@ class Tdx:
         x = np.random.rand(self.r + 1, self.m - 1).transpose()
         x = x.flatten('F')
 
+        self.fun_vect(x, phi, u, a, self.l, d, w)
+
         gfg = 3
 
     def j_vect(self, u, a, m, n):
@@ -62,4 +65,14 @@ class Tdx:
 
         return j
 
-    def fun_vect(self):
+    def fun_vect(self, x, phi, u, a, lamda, d, w):
+        # tdx_coefs = x.reshape(self.r + 1, self.m - 1).transpose()
+        tdx_coefs = x.reshape(self.m - 1, self.r + 1)
+        e = np.exp(u @ tdx_coefs @ a.transpose())
+        dot_products = (phi.transpose() * e).sum(axis=0)
+        dot_products = dot_products.reshape(1, dot_products.shape[0])
+        f = np.sum((w.transpose() * np.log(dot_products)) - (w.transpose() * np.log(np.sum(e, axis=0))))
+        if lamda > 0:
+            penalty = lamda * np.trace((d.transpose() @ tdx_coefs.transpose()) @ tdx_coefs @ d)
+            f = f - penalty
+        return f
