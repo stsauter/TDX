@@ -12,8 +12,8 @@ class Tdx:
         self.l = l
 
     def fit(self, x_train, t_train):
-        mu = np.linspace(np.quantile(x_train, 0.01), np.quantile(x_train, 0.99), self.m).reshape(1, self.m)
-        phi = norm.pdf(x_train.reshape(x_train.shape[0], 1), loc=mu, scale=self.h)
+        self.mu = np.linspace(np.quantile(x_train, 0.01), np.quantile(x_train, 0.99), self.m).reshape(1, self.m)
+        phi = norm.pdf(x_train.reshape(x_train.shape[0], 1), loc=self.mu, scale=self.h)
         phi[phi == 0] = 1e-5
 
         tmax = 1
@@ -46,11 +46,8 @@ class Tdx:
         x = x.flatten('F')
 
         additional_params = phi, self.u, a, j, self.l, d, w
-        # self.gradient_vect(x, phi, u, a, j, self.l, d, w)
-        # self.gradient_vect(x, additional_params)
-
-        res = minimize(self.fun_vect, x, jac=self.gradient_vect, args=additional_params, method='bfgs', options={'disp': True})
-        self.coefs = res.x.reshape(self.m - 1, self.r + 1)
+        # res = minimize(self.fun_vect, x, jac=self.gradient_vect, args=additional_params, method='l-bfgs-b', options={'disp': True})
+        # self.coefs = res.x.reshape(self.m - 1, self.r + 1)
 
     def j_vect(self, u, a, m, n):
         u_rep = np.zeros((m, (m - 1) * n))
@@ -106,3 +103,35 @@ class Tdx:
         tmp[np.isinf(tmp)] = 0
         yt = tmp * exp.transpose()
         return yt
+
+    def get_gamma(self, t):
+        self.set_test_data()
+        bases = np.tile(t.reshape(t.shape[0], 1), (1, self.r + 1))
+        exponents = np.tile(range(self.r + 1), (t.shape[0], 1))
+        a = np.power(bases, exponents)
+        e_mat = np.exp(self.u @ self.coefs @ a.transpose())
+        i = np.ones((self.m, 1))
+        g = (e_mat / (i * e_mat.sum(axis=0))).transpose()
+        return g
+
+    def pdf(self, x, t):
+        pdf = np.zeros((t.shape[0], x.shape[1]))
+        g = self.get_gamma(t)
+        for i in range(self.m):
+            pdf = pdf + g[:, i].reshape(g.shape[0], 1) @ norm.pdf(x, loc=self.mu[0, i], scale=self.h)
+        return pdf
+
+    def set_test_data(self):
+        self.coefs = np.array([[-0.342003448280851, 0.0412981820972530, 0.0261539510147315, -0.00243336522872218, -0.00496060704550973, -0.0158247294566967],
+        [6.73231217398917, 0.383001973860287, 0.262172175811604, 0.196027578702680, 0.178700803788585, 0.139352149656245],
+        [-1.12968470771790, -0.124333240891595, -0.103034127843851, -0.0951741165935979, -0.0826102724907291, -0.0538180639988147],
+        [-2.75101552899771, -0.194538781801245, -0.150720371147741, -0.0892378299789635, -0.101508744977172, -0.0705711622835548],
+        [-1.70734342697976, -0.175475273236360, -0.104038948665231, -0.0997502755291537, -0.0627053770161427, -0.0755430927904746],
+        [0.759537751516781, -0.161812038636567, -0.107764109196660, -0.0859201002774936, -0.0579818935728293, -0.0522825921236686],
+        [7.60211126667295, -0.941617570643533, -0.586321653277136, -0.332229530687844, -0.212885940923690, -0.147105694359449],
+        [1.13833347832646, 0.0106823907199322, -0.0329995934930307, -0.0298614804787476, -0.0317627349019797, -0.0448103051267880],
+        [0.761265614243612, 0.0392720436330845, 0.00268679531312246, -0.0340045804065830, -0.0288428979569656, -0.0133397093629450],
+        [4.13965212493327, 0.205953235622318, 0.0933081891368810, 0.0332570406580172, -0.0287844896133309, -0.0300942999035468],
+        [4.81878881957077, 0.362786258418644, 0.146971124811358, 0.00882798736687461, -0.0638097502721925, -0.111494807369267],
+        [-2.21677429318743, -0.0205265189802002, -0.0336955346258527, -0.0316126089099040, -0.0153901172252245, -0.00848074694220209],
+        [-4.06404835158050, 0.0147231751115763, 0.000583253012410675, -0.00539264564576391, -0.00603113725308661, -0.0181702964627574]])
