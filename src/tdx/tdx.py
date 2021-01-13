@@ -25,11 +25,11 @@ class Tdx:
 
         u_tilde = np.zeros((self.m, self.m - 1)) + (-np.triu(np.ones((self.m, self.m - 1))))
         for col_idx in range(self.m - 1):
-            u_tilde[col_idx + 1][col_idx] = col_idx + 1
+            u_tilde[col_idx + 1, col_idx] = col_idx + 1
 
         vn = np.zeros((1, u_tilde.shape[1]))
         for col_idx in range(u_tilde.shape[1]):
-            vn[0][col_idx] = np.sqrt(u_tilde[:, col_idx].dot(u_tilde[:, col_idx]))
+            vn[0, col_idx] = np.sqrt(u_tilde[:, col_idx].dot(u_tilde[:, col_idx]))
         self.u = np.matmul(u_tilde, np.diagflat(1 / vn))
 
         bases = np.tile(t_train.reshape(t_train.shape[0], 1), (1, self.r + 1))
@@ -42,7 +42,7 @@ class Tdx:
 
         np.random.seed(32)
         # x = np.random.rand(self.m - 1, self.r + 1)
-        x = np.random.rand(self.r + 1, self.m - 1).transpose()
+        x = np.random.rand(self.r + 1, self.m - 1).T
         x = x.flatten('F')
 
         additional_params = phi, self.u, a, j, self.l, d, w
@@ -65,14 +65,14 @@ class Tdx:
         return j
 
     def fun_vect(self, x, phi, u, a, j, lamda, d, w):
-        # tdx_coefs = x.reshape(self.r + 1, self.m - 1).transpose()
+        # tdx_coefs = x.reshape(self.r + 1, self.m - 1).T
         tdx_coefs = x.reshape(self.m - 1, self.r + 1)
-        e = np.exp(u @ tdx_coefs @ a.transpose())
-        dot_products = (phi.transpose() * e).sum(axis=0)
+        e = np.exp(u @ tdx_coefs @ a.T)
+        dot_products = (phi.T * e).sum(axis=0)
         dot_products = dot_products.reshape(1, dot_products.shape[0])
-        f = np.sum((w.transpose() * np.log(dot_products)) - (w.transpose() * np.log(np.sum(e, axis=0))))
+        f = np.sum((w.T * np.log(dot_products)) - (w.T * np.log(np.sum(e, axis=0))))
         if lamda > 0:
-            penalty = lamda * np.trace((d.transpose() @ tdx_coefs.transpose()) @ tdx_coefs @ d)
+            penalty = lamda * np.trace((d.T @ tdx_coefs.T) @ tdx_coefs @ d)
             f = f - penalty
         return -1 * f
 
@@ -89,19 +89,19 @@ class Tdx:
             g = g + (yt1_prod - yt2_prod)
 
         if lamda > 0:
-            penalty = lamda * tdx_coefs @ d @ d.transpose()
+            penalty = lamda * tdx_coefs @ d @ d.T
             penalty = penalty.reshape(1, tdx_coefs.shape[0] * tdx_coefs.shape[1])
             g = g - penalty
 
         return -1 * g.flatten('F')
 
     def ytilde_vect(self, x, phi, u, a):
-        exp = np.exp(u @ x @ a.transpose())
-        b = (phi.transpose() * exp).sum(axis=0)
+        exp = np.exp(u @ x @ a.T)
+        b = (phi.T * exp).sum(axis=0)
         b = b.reshape(b.shape[0], 1)
         tmp = 1 / b * phi
         tmp[np.isinf(tmp)] = 0
-        yt = tmp * exp.transpose()
+        yt = tmp * exp.T
         return yt
 
     def get_gamma(self, t):
@@ -109,16 +109,17 @@ class Tdx:
         bases = np.tile(t.reshape(t.shape[0], 1), (1, self.r + 1))
         exponents = np.tile(range(self.r + 1), (t.shape[0], 1))
         a = np.power(bases, exponents)
-        e_mat = np.exp(self.u @ self.coefs @ a.transpose())
+        e_mat = np.exp(self.u @ self.coefs @ a.T)
         i = np.ones((self.m, 1))
-        g = (e_mat / (i * e_mat.sum(axis=0))).transpose()
+        g = (e_mat / (i * e_mat.sum(axis=0))).T
         return g
 
     def pdf(self, x, t):
-        pdf = np.zeros((t.shape[0], x.shape[1]))
+        pdf = np.zeros((t.shape[0], x.shape[0]))
+        x_reshaped = x.reshape(1, x.shape[0])
         g = self.get_gamma(t)
         for i in range(self.m):
-            pdf = pdf + g[:, i].reshape(g.shape[0], 1) @ norm.pdf(x, loc=self.mu[0, i], scale=self.h)
+            pdf = pdf + g[:, i].reshape(g.shape[0], 1) @ norm.pdf(x_reshaped, loc=self.mu[0, i], scale=self.h)
         return pdf
 
     def set_test_data(self):
