@@ -3,10 +3,6 @@ import math
 import numpy as np
 import pandas as pd
 
-
-import pytest
-# pytest.set_trace() python -m pytest
-
 from src.data.weight_drift_stream import WeightDriftStream
 
 

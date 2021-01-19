@@ -15,7 +15,7 @@ test_idx = range(train_idx[-1] + 1, ds.x.shape[0])
 x_test = ds.x[test_idx]
 t_test = ds.t[test_idx]
 
-model = Tdx(14, 0.6, 5, 2)
+model = Tdx(14, 0.6, 5, 2, random_state=32, verbose=True)
 model.fit(x_train, t_train)
 gamma = model.get_gamma(ds.t)
 
