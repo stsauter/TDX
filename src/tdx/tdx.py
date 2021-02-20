@@ -34,6 +34,7 @@ class Tdx:
     ----------
     .. [1] Krempl, G., Lang, D. & Hofer, V. Temporal density extrapolation using a dynamic basis approach.
        In  Data Min Knowl Disc 33, 1323–1356 (2019).
+
     Examples
     --------
     >>> # Imports
@@ -241,7 +242,7 @@ class Tdx:
         return yt
 
     def get_gamma(self, t):
-        """ Compute the basis weights at at a given time point t
+        """ Compute the basis weights at at a given time point t.
 
         Parameters
         ----------
@@ -251,7 +252,7 @@ class Tdx:
         Returns
         -------
         numpy.ndarray of shape (n_time_values, m)
-            Basis weights at a given time point t
+            Basis weights at a given time point t.
         """
         bases = np.tile(t.reshape(t.shape[0], 1), (1, self._r + 1))
         exponents = np.tile(range(self._r + 1), (t.shape[0], 1))
@@ -262,7 +263,7 @@ class Tdx:
         return gamma
 
     def pdf(self, x, t):
-        """ Predict the probability density at point x and at a given time point t
+        """ Predict the probability density at point x and at a given time point t.
 
         Parameters
         ----------
@@ -274,7 +275,7 @@ class Tdx:
         Returns
         -------
         numpy.ndarray of shape (n_time_values, n_samples)
-            Probability density function evaluated at point x and time point t
+            Probability density function evaluated at point x and time point t.
         """
         pdf = np.zeros((t.shape[0], x.shape[0]))
         x_reshaped = x.reshape(1, x.shape[0])
