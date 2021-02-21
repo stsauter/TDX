@@ -4,8 +4,21 @@ from abc import ABCMeta, abstractmethod
 
 
 class BaseDriftStream(metaclass=ABCMeta):
+    """ Base class for streams with concept drift.
 
-    def __init__(self, n_samples, n_segments, n_components):
+    This abstract class defines the minimum requirements of a stream with concept drift
+
+    Parameters
+    ----------
+    n_samples : int
+        Number of samples.
+    n_segments: int
+        Number of time segments.
+    n_components: int
+        Number of components the stream consists of.
+    """
+
+    def __init__(self, n_samples: int, n_segments: int, n_components: int):
         self._n_samples = n_samples
         self._n_segments = n_segments
         self._n_components = n_components
@@ -19,26 +32,74 @@ class BaseDriftStream(metaclass=ABCMeta):
 
     @property
     def n_samples(self):
+        """
+        Return the number of samples.
+
+        Returns
+        -------
+        int:
+            the number of samples
+        """
         return self._n_samples
 
     @property
     def n_segments(self):
+        """
+        Return the number of time segments.
+
+        Returns
+        -------
+        int:
+            the number of time segments
+        """
         return self._n_segments
 
     @property
     def n_components(self):
+        """
+         Return the number of streaming components.
+
+         Returns
+         -------
+         int:
+             the number of streaming components.
+         """
         return self._n_components
 
     @property
     def x(self):
+        """
+         Return data points of the data stream.
+
+         Returns
+         -------
+         numpy.ndarray of shape (n_samples,):
+             Data points of the data stream.
+         """
         return self._x
 
     @property
     def t(self):
+        """
+         Return array containing time segments.
+
+         Returns
+         -------
+         numpy.ndarray of shape (n_samples,):
+             Array containing the time segments of the data stream.
+         """
         return self._t
 
     @property
     def c(self):
+        """
+         Return array containing the streaming components.
+
+         Returns
+         -------
+         numpy.ndarray of shape (n_samples,):
+             Array containing the component numbers which have generated the corresponding data points.
+         """
         return self._c
 
     @abstractmethod
@@ -55,6 +116,20 @@ class BaseDriftStream(metaclass=ABCMeta):
         return segment_array
 
     def pdf(self, x, t):
+        """ Compute the probability density at point x and at a given time point t.
+
+        Parameters
+        ----------
+        x : numpy.ndarray of shape (n_samples,)
+            Data points at which the probability density function should be evaluated.
+        t : numpy.ndarray of shape (n_time_values,)
+            Time values at which the probability densities should be predicted.
+
+        Returns
+        -------
+        numpy.ndarray of shape (n_time_values, n_samples)
+            Probability density function evaluated at point x and time point t.
+        """
         pdf = np.zeros((t.shape[0], x.shape[0]))
         segments = (t / self._segment_length).round().astype(int)
         unique_segments = np.unique(segments).round().astype(int)

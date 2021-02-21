@@ -7,7 +7,7 @@ from src.data.static_skew_normals_drift_stream import StaticSkewNormalsDriftStre
 
 
 def test_stream_data(test_path):
-    ds = StaticSkewNormalsDriftStream(250, 12, dist_support=[0, 11], random_state=1)
+    ds = StaticSkewNormalsDriftStream(250, 12, dist_support=[0, 11], seed=1)
 
     test_file = os.path.join(test_path, 'static_skew_normals_stream.csv')
     raw_data = pd.read_csv(test_file, header=None)
@@ -20,7 +20,7 @@ def test_stream_data(test_path):
 
 
 def test_stream_pdf(test_path):
-    ds = StaticSkewNormalsDriftStream(250, 12, dist_support=[0, 11], random_state=1)
+    ds = StaticSkewNormalsDriftStream(250, 12, dist_support=[0, 11], seed=1)
 
     train_idx = range(math.ceil(0.66 * ds.x.shape[0]))
     test_idx = range(train_idx[-1] + 1, ds.x.shape[0])

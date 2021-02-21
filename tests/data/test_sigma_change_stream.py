@@ -7,7 +7,7 @@ from src.data.sigma_change_drift_stream import SigmaChangeDriftStream
 
 
 def test_stream_data(test_path):
-    ds = SigmaChangeDriftStream(250, 12, dist_support=[0, 10], random_state=1)
+    ds = SigmaChangeDriftStream(250, 12, dist_support=[0, 10], seed=1)
 
     test_file = os.path.join(test_path, 'sigma_change_stream.csv')
     raw_data = pd.read_csv(test_file, header=None)
@@ -20,7 +20,7 @@ def test_stream_data(test_path):
 
 
 def test_stream_pdf(test_path):
-    ds = SigmaChangeDriftStream(250, 12, dist_support=[0, 10], random_state=1)
+    ds = SigmaChangeDriftStream(250, 12, dist_support=[0, 10], seed=1)
 
     train_idx = range(math.ceil(0.66 * ds.x.shape[0]))
     test_idx = range(train_idx[-1] + 1, ds.x.shape[0])
