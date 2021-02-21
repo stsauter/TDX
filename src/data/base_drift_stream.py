@@ -19,6 +19,9 @@ class BaseDriftStream(metaclass=ABCMeta):
     """
 
     def __init__(self, n_samples: int, n_segments: int, n_components: int):
+        if n_segments > n_samples:
+            raise ValueError('The number of segments may not be greater than the number of samples')
+
         self._n_samples = n_samples
         self._n_segments = n_segments
         self._n_components = n_components
