@@ -1,8 +1,10 @@
+import concurrent
 import numpy as np
 
-from sklearn.utils import check_random_state
-from scipy.stats import norm
+from concurrent.futures import ProcessPoolExecutor
 from scipy.optimize import minimize
+from scipy.stats import norm
+from sklearn.utils import check_random_state
 
 
 class Tdx:
@@ -18,6 +20,9 @@ class Tdx:
         Order of polynomial.
     lambda_reg : int or float
         Regularization factor.
+    n_start_points : int (default=1)
+        If value is > 1, the solver tries to find n local solutions by starting from randomly choosen points when
+        fitting the model.
     seed : None | int | instance of RandomState (default=None)
         Random number generator seed for reproducibility.
     verbose : boolean (default=False)
@@ -43,7 +48,7 @@ class Tdx:
     >>> from sklearn.model_selection import train_test_split
     >>>
     >>> # Setting up a data stream
-    >>> stream = WeightDriftStream(25000, 120, dist_support=[0, 7], seed=1)
+    >>> stream = WeightDriftStream(25000, 120, dist_support=[0, 7])
     >>>
     >>> # Setup training data
     >>> x_train, x_test, t_train, t_test = train_test_split(stream.x, stream.t, train_size=0.66, shuffle=False)
@@ -65,6 +70,7 @@ class Tdx:
             bandwidth: float,
             r: int,
             lambda_reg: int or float,
+            n_start_points: int = 1,
             seed: int or np.random.RandomState = None,
             verbose: bool = False
     ):
@@ -72,11 +78,16 @@ class Tdx:
         self._bandwidth = bandwidth
         self._r = r
         self._lambda = lambda_reg
+        self._n_start_points = n_start_points
         self._verbose = verbose
         self._random_state = check_random_state(seed)
         self._mu = np.array([])
         self._coefs = np.array([])
         self._u = np.array([])
+        self._max_optimization_retries = 5
+
+        if self._n_start_points < 1:
+            raise ValueError("Number of starting points has to be greater than 0")
 
     @property
     def m(self):
@@ -148,14 +159,7 @@ class Tdx:
         c = np.zeros((self._r + 1, self._r))
         c[1:, :] = np.diagflat(np.ones(self._r))
 
-        # x = self._random_state.rand(self._m - 1, self._r + 1)
-        # self._random_state.rand((self._r + 1) * (self._m - 1))
-        x = self._random_state.rand(self._r + 1, self._m - 1).T
-        x = x.flatten('F')
-
-        additional_params = phi, a, j, c, w
-        res = minimize(self._log_likelihood_fun, x, jac=self._get_gradient, args=additional_params, method='l-bfgs-b',
-                       options={'disp': self._verbose})
+        res = self._optimize(phi, a, j, c, w)
         self._coefs = res.x.reshape(self._m - 1, self._r + 1)
 
     def _get_u(self):
@@ -240,6 +244,63 @@ class Tdx:
         tmp[np.isinf(tmp)] = 0
         yt = tmp * e.T
         return yt
+
+    def _optimize(self, phi, a, j, c, w):
+        retry_counter = 0
+        succeeded = False
+        res = None
+        additional_params = phi, a, j, c, w
+
+        while not succeeded:
+            try:
+                if self._n_start_points > 1:
+                    res = self._multi_start_optimize(self._n_start_points, additional_params)
+                else:
+                    res = self._optimize_log_likelihood(self._generate_random_start_points(), additional_params)
+            except Exception as exc:
+                print('An exception occurred during optimization: {}'.format(exc))
+            finally:
+                if not res or not res.success:
+                    if retry_counter < self._max_optimization_retries:
+                        retry_counter += 1
+                        print('Optimization failed, retrying with different random points...')
+                    else:
+                        raise RuntimeError('Unable to solve optimisation problem!')
+                else:
+                    succeeded = True
+        return res
+
+    def _multi_start_optimize(self, n_start_points, additional_params):
+        best_fun = float('inf')
+        best_result = None
+        with ProcessPoolExecutor() as executor:
+            futures = []
+            for i in range(n_start_points):
+                start_points = self._generate_random_start_points()
+                futures.append(executor.submit(self._optimize_log_likelihood, x=start_points,
+                                               additional_params=additional_params))
+            for future in concurrent.futures.as_completed(futures):
+                try:
+                    optimize_result = future.result()
+                    if optimize_result.success and optimize_result.fun < best_fun:
+                        best_fun = optimize_result.fun
+                        best_result = optimize_result
+                except Exception as exc:
+                    print('An exception occurred during multistart optimization: {}'.format(exc))
+
+        return best_result
+
+    def _generate_random_start_points(self):
+        # x = self._random_state.rand(self._m - 1, self._r + 1)
+        # self._random_state.rand((self._r + 1) * (self._m - 1))
+        x = self._random_state.rand(self._r + 1, self._m - 1).T
+        x = x.flatten('F')
+        return x
+
+    def _optimize_log_likelihood(self, x, additional_params):
+        res = minimize(self._log_likelihood_fun, x, jac=self._get_gradient, args=additional_params, method='l-bfgs-b',
+                       options={'disp': self._verbose})
+        return res
 
     def get_gamma(self, t):
         """ Compute the basis weights at at a given time point t.

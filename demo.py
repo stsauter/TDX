@@ -1,7 +1,6 @@
 import math
-
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
 
 from src.data.weight_drift_stream import WeightDriftStream
 from src.tdx.tdx import Tdx
