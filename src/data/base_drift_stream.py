@@ -126,7 +126,7 @@ class BaseDriftStream(metaclass=ABCMeta):
         x : numpy.ndarray of shape (n_samples,)
             Data points at which the probability density function should be evaluated.
         t : numpy.ndarray of shape (n_time_values,)
-            Time values at which the probability densities should be predicted.
+            Time values at which the probability densities should be computed.
 
         Returns
         -------
