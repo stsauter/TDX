@@ -1,9 +1,17 @@
 import math
-import matplotlib.pyplot as plt
+import dash
+import pickle
+
 import numpy as np
+import matplotlib.pyplot as plt
+from scipy.cluster.hierarchy import dendrogram, fcluster
+from scipy.cluster import hierarchy
+from sklearn.cluster import AgglomerativeClustering
+from sklearn.preprocessing import StandardScaler
 
 from src.data.weight_drift_stream import WeightDriftStream
-from src.tdx.tdx import Tdx
+from src.density_evaluation.density_evaluator import DensityEvaluator
+from src.spatio_temporal_generators.grid_sampler import GridSampler
 
 ds = WeightDriftStream(25000, 120, dist_support=[0, 7], seed=1)
 
@@ -14,25 +22,41 @@ test_idx = range(train_idx[-1] + 1, ds.x.shape[0])
 x_test = ds.x[test_idx]
 t_test = ds.t[test_idx]
 
-model = Tdx(14, 0.6, 5, 2, seed=32, verbose=True)
-model.fit(x_train, t_train)
-gamma = model.get_gamma(ds.t)
+filename = 'tdx_trained'
+infile = open(filename, 'rb')
+model = pickle.load(infile)
+infile.close()
 
-x_grid = np.linspace(np.quantile(ds.x, 0.01), np.quantile(ds.x, 0.99), 200)
-true_dens = ds.pdf(x_grid, t_test)
-pred_dens = model.pdf(x_grid, t_test)
+"""
+x = np.load('x.npy')
+x_vals = np.load('x_vals.npy')
+t = np.load('t.npy')
 
-time_idxs = [0, math.ceil(x_test.shape[0] / 2), x_test.shape[0] - 1]
-fig, axs = plt.subplots(len(time_idxs))
-for i, time_idx in enumerate(time_idxs):
-    axs[i].plot(x_grid, true_dens[time_idx, :], '-b', label="True density")
-    axs[i].plot(x_grid, pred_dens[time_idx, :], '--r', label="Predicted density")
-    axs[i].set_title('Density at t=' + str(round(t_test[time_idx], 4)))
-    axs[i].set(xlabel='X', ylabel='P(X)')
-    axs[i].legend(loc="upper right")
+scaler = StandardScaler()
+X_scaled = scaler.fit_transform(x)
 
-for ax in axs.flat:
-    ax.label_outer()
+model = AgglomerativeClustering(distance_threshold=1.0, n_clusters=None)
+# model = AgglomerativeClustering(distance_threshold=None, n_clusters=5)
+model = model.fit(X_scaled)
 
-# plt.subplots_adjust(hspace=0.5)
+Z = hierarchy.linkage(X_scaled, 'ward')
+plt.figure(figsize=(20, 10))
+dn = hierarchy.dendrogram(Z)
+
+clusters = fcluster(Z, 3, criterion='maxclust')
+plt.figure(figsize=(10, 8))
+# plt.scatter(x[:, 0], x[:, 1], c=model.labels_, cmap='prism')
+plt.scatter(x[:, 0], x[:, 1], c=clusters, cmap='prism')
 plt.show()
+
+"""
+
+external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
+app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
+
+generator = GridSampler()
+evaluator = DensityEvaluator(app, ds, model, generator)
+app.layout = evaluator.plot_differences()
+
+if __name__ == '__main__':
+    app.run_server(debug=True)
