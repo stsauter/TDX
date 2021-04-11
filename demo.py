@@ -2,10 +2,24 @@ import math
 import matplotlib.pyplot as plt
 import numpy as np
 
+from src.data.mean_drift_stream import MeanDriftStream
+from src.data.sigma_change_drift_stream import SigmaChangeDriftStream
+from src.data.static_skew_normals_drift_stream import StaticSkewNormalsDriftStream
 from src.data.weight_drift_stream import WeightDriftStream
 from src.tdx.tdx import Tdx
 
+
+def get_every_n(x, t, n=2):
+    for i in range(x.shape[0] // n):
+        last_idx = n*(i+1)
+        yield x[n*i:n*(i+1)], t[n*i:n*(i+1)]
+    if x.shape[0] % n > 0:
+        yield x[last_idx:], t[last_idx:]
+
 ds = WeightDriftStream(25000, 120, dist_support=[0, 7], seed=1)
+# ds = MeanDriftStream(25000, 120, dist_support=[0, 12], seed=1)
+# ds = SigmaChangeDriftStream(25000, 120, dist_support=[0, 10], seed=1)
+# ds = StaticSkewNormalsDriftStream(25000, 120, dist_support=[0, 11], seed=1)
 
 train_idx = range(math.ceil(0.66 * ds.x.shape[0]))
 x_train = ds.x[train_idx]
@@ -14,9 +28,19 @@ test_idx = range(train_idx[-1] + 1, ds.x.shape[0])
 x_test = ds.x[test_idx]
 t_test = ds.t[test_idx]
 
-model = Tdx(14, 0.6, 5, 2, seed=32, verbose=True)
-model.fit(x_train, t_train)
-gamma = model.get_gamma(ds.t)
+model = Tdx(14, 0.6, 5, 2, verbose=True)
+# model.fit_partial(x_train, t_train)
+coefs = np.array([
+    [10, -2, 0.1],
+    [10, -2, 0.1]])
+dd = model.transform_tdx_coeffs(coefs, 5, 10)
+# model.fit(x_train[0:1200], t_train[0:1200])
+orig_timestamps = t_train
+for x_part, t_part in get_every_n(x_train, t_train, n=1500):
+    model.fit_partial(x_part, t_part)
+
+# model.fit(x_train, t_train)
+# gamma = model.get_gamma(ds.t)
 
 x_grid = np.linspace(np.quantile(ds.x, 0.01), np.quantile(ds.x, 0.99), 200)
 true_dens = ds.pdf(x_grid, t_test)

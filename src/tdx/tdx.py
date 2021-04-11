@@ -1,11 +1,13 @@
 import concurrent
+import math
+
 import numpy as np
 
 from concurrent.futures import ProcessPoolExecutor
 from scipy.optimize import minimize
 from scipy.stats import norm
 from sklearn.utils import check_random_state
-
+import matplotlib.pyplot as plt
 
 class Tdx:
     """ TDX stream density estimator.
@@ -84,7 +86,8 @@ class Tdx:
         self._mu = np.array([])
         self._coefs = np.array([])
         self._u = np.array([])
-        self._max_optimization_retries = 5
+        self._max_optimization_retries = 1
+        self._partial_fit_counter = 0
 
         if self._n_start_points < 1:
             raise ValueError("Number of starting points has to be greater than 0")
@@ -137,6 +140,50 @@ class Tdx:
         """
         return self._lambda
 
+    def fit_partial(self, x_train, t_train):
+        """ Fit the model.
+
+        Parameters
+        ----------
+        x_train : numpy.ndarray of shape (n_samples,)
+            Feature values of the training samples.
+        t_train : numpy.ndarray of shape (n_samples,)
+            Time values of the training samples.
+        """
+        self._mu = np.linspace(np.quantile(x_train, 0.01), np.quantile(x_train, 0.99), self._m).reshape(1, self._m)
+        phi = norm.pdf(x_train.reshape(x_train.shape[0], 1), loc=self._mu, scale=self._bandwidth)
+        phi[phi == 0] = 1e-5
+
+        if self._partial_fit_counter > 0:
+            target_min_in_src = self.transform(t_train[0], self.min_t, self.max_t)
+            target_max_in_src = self.transform(t_train[-1], self.min_t, self.max_t)
+            src_coefs = self._coefs
+            self._coefs = self.transform_tdx_coeffs(self._coefs, target_min_in_src, target_max_in_src)
+            self.tgt_timestamps = self.transform(self.orig_timestamps, np.min(t_train), np.max(t_train))
+            self.plot_coefs(src_coefs, self.src_timestamps, self._coefs, self.tgt_timestamps)
+
+        self.min_t = t_train[0]
+        self.max_t = t_train[-1]
+        t_train_scaled = self.transform(t_train, self.min_t, self.max_t)
+        # self.orig_timestamps = t_train
+        # self.src_timestamps = t_train_scaled
+        self.orig_timestamps = np.linspace(0, 1, 100)
+        self.src_timestamps = self.transform(self.orig_timestamps, self.min_t, self.max_t)
+        # self.tgt_timestamps = self.transform(t_train, 0.03333, 0.06667)
+        # t_train_scaled = t_train
+
+        self._u = self._get_u()
+        a = self._get_a(t_train_scaled)
+        j = self._get_j(a)
+        w = self._get_time_weights(t_train_scaled, 0.1, 1)
+
+        c = np.zeros((self._r + 1, self._r))
+        c[1:, :] = np.diagflat(np.ones(self._r))
+
+        res = self._optimize(phi, a, j, c, w, True)
+        self._coefs = res.x.reshape(self._m - 1, self._r + 1)
+        self._partial_fit_counter = self._partial_fit_counter + 1
+
     def fit(self, x_train, t_train):
         """ Fit the model.
 
@@ -151,10 +198,14 @@ class Tdx:
         phi = norm.pdf(x_train.reshape(x_train.shape[0], 1), loc=self._mu, scale=self._bandwidth)
         phi[phi == 0] = 1e-5
 
+        self.min_t = t_train[0]
+        self.max_t = t_train[-1]
+        t_train_scaled = self.transform(t_train, self.min_t, self.max_t)
+
         self._u = self._get_u()
-        a = self._get_a(t_train)
+        a = self._get_a(t_train_scaled)
         j = self._get_j(a)
-        w = self._get_time_weights(t_train, 0.1, 1)
+        w = self._get_time_weights(t_train_scaled, 0.1, 1)
 
         c = np.zeros((self._r + 1, self._r))
         c[1:, :] = np.diagflat(np.ones(self._r))
@@ -216,6 +267,8 @@ class Tdx:
         if self._lambda > 0:
             penalty = self._lambda * np.trace(c.T @ tdx_coefs.T @ tdx_coefs @ c)
             f = f - penalty
+
+        self.myFun = -1 * f
         return -1 * f
 
     def _get_gradient(self, x, phi, a, j, c, w):
@@ -234,6 +287,7 @@ class Tdx:
             penalty = penalty.reshape(1, tdx_coefs.shape[0] * tdx_coefs.shape[1])
             g = g - penalty
 
+        self.myGrad = g
         return -1 * g.flatten('F')
 
     def _get_y_tilde(self, coefs, y, a):
@@ -245,7 +299,7 @@ class Tdx:
         yt = tmp * e.T
         return yt
 
-    def _optimize(self, phi, a, j, c, w):
+    def _optimize(self, phi, a, j, c, w, partial=False):
         retry_counter = 0
         succeeded = False
         res = None
@@ -256,7 +310,12 @@ class Tdx:
                 if self._n_start_points > 1:
                     res = self._multi_start_optimize(self._n_start_points, additional_params)
                 else:
-                    res = self._optimize_log_likelihood(self._generate_random_start_points(), additional_params)
+                    if partial and self._coefs.size > 0:
+                        start_points = self._coefs
+                        start_points = start_points.flatten()
+                    else:
+                        start_points = self._generate_random_start_points()
+                    res = self._optimize_log_likelihood(start_points, additional_params)
             except Exception as exc:
                 print('An exception occurred during optimization: {}'.format(exc))
             finally:
@@ -338,9 +397,57 @@ class Tdx:
         numpy.ndarray of shape (n_time_values, n_samples)
             Probability density function evaluated at point x and time point t.
         """
-        pdf = np.zeros((t.shape[0], x.shape[0]))
+        t_scaled = self.transform(t, self.min_t, self.max_t)
+        # t_scaled = t
+        pdf = np.zeros((t_scaled.shape[0], x.shape[0]))
         x_reshaped = x.reshape(1, x.shape[0])
-        g = self.get_gamma(t)
+        g = self.get_gamma(t_scaled)
         for i in range(self._m):
             pdf = pdf + g[:, i].reshape(g.shape[0], 1) @ norm.pdf(x_reshaped, loc=self._mu[0, i], scale=self._bandwidth)
         return pdf
+
+    def transform(self, t, min_t, max_t):
+        return 0 + ((t - min_t) / (2*(max_t - min_t)))
+
+    def poly_eval(self, b, x, derivative: int = 0):
+        v = 0
+        for i in range(derivative, len(b)):
+            v = v + (math.factorial(i)/math.factorial(i-derivative)) * b[i] * math.pow(x, (i-derivative))
+        return v
+
+    def transform_poly_coeffs(self, coeffs_src, min_src, max_src):
+        poly_coeffs = []
+        unit_src = max_src - min_src
+        for rIdx in range(len(coeffs_src)):
+            df = self.poly_eval(coeffs_src, min_src, rIdx)
+            coeff = df * math.pow(2*unit_src, rIdx) * math.pow(math.factorial(rIdx), -1)
+            poly_coeffs.append(coeff)
+
+        return poly_coeffs
+
+    def transform_tdx_coeffs(self, tdx_coeffs, min_src, max_src):
+        poly_coeffs = np.zeros(tdx_coeffs.shape)
+        for i in range(tdx_coeffs.shape[0]):
+            transformed_coeffs = self.transform_poly_coeffs(tdx_coeffs[i, :], min_src, max_src)
+            poly_coeffs[i, :] = transformed_coeffs
+
+        return poly_coeffs
+
+    def plot_coefs(self, src_coefs, src_timestamps, tgt_coefs, tgt_timestamps):
+        src_fval = np.zeros((src_coefs.shape[0], src_timestamps.shape[0]))
+        tgt_fval = np.zeros((src_coefs.shape[0], src_timestamps.shape[0]))
+        bla = np.zeros((src_coefs.shape[0], src_timestamps.shape[0]))
+        for i in range(src_coefs.shape[0]):
+            for j in range(src_timestamps.shape[0]):
+                src_fval[i, j] = self.poly_eval(src_coefs[0, :], src_timestamps[j], i)
+                tgt_fval[i, j] = self.poly_eval(tgt_coefs[0, :], tgt_timestamps[j], i)
+                bla[i, j] = self.poly_eval(src_coefs[0, :], tgt_timestamps[j], i)
+
+        x_grid = np.linspace(0, 1, 100)
+        plt.plot(self.orig_timestamps, src_fval[1, :], 'b+')
+        plt.plot(self.orig_timestamps, tgt_fval[1, :], 'r+')
+        plt.plot(self.orig_timestamps, bla[1, :], 'g+')
+        plt.show()
+
+        rr = 4
+
