@@ -10,7 +10,7 @@ from sklearn.utils import check_random_state
 import matplotlib.pyplot as plt
 
 class Tdx:
-    """ TDX stream density estimator.
+    """TDX stream density estimator.
 
     Parameters
     ----------
@@ -84,18 +84,20 @@ class Tdx:
         self._verbose = verbose
         self._random_state = check_random_state(seed)
         self._mu = np.array([])
-        self._coefs = np.array([])
+        self._coeffs = np.array([])
         self._u = np.array([])
-        self._max_optimization_retries = 1
+        self._max_optimization_attempts = 5
         self._partial_fit_counter = 0
+        self._t_min = 0
+        self._t_max = 0
 
         if self._n_start_points < 1:
             raise ValueError("Number of starting points has to be greater than 0")
+        self._temp_multi_start_coeffs = np.array([])
 
     @property
     def m(self):
-        """
-        Return the number of basis functions.
+        """Return the number of basis functions.
 
         Returns
         -------
@@ -106,8 +108,7 @@ class Tdx:
 
     @property
     def bandwidth(self):
-        """
-        Return the standard deviation of basis functions.
+        """Return the standard deviation of basis functions.
 
         Returns
         -------
@@ -118,8 +119,7 @@ class Tdx:
 
     @property
     def r(self):
-        """
-        Return the order of polynomial.
+        """Return the order of polynomial.
 
         Returns
         -------
@@ -130,8 +130,7 @@ class Tdx:
 
     @property
     def lambda_reg(self):
-        """
-        Return the regularization factor.
+        """Return the regularization factor.
 
         Returns
         -------
@@ -141,7 +140,7 @@ class Tdx:
         return self._lambda
 
     def fit_partial(self, x_train, t_train):
-        """ Fit the model.
+        """Fit the model partially.
 
         Parameters
         ----------
@@ -150,42 +149,27 @@ class Tdx:
         t_train : numpy.ndarray of shape (n_samples,)
             Time values of the training samples.
         """
-        self._mu = np.linspace(np.quantile(x_train, 0.01), np.quantile(x_train, 0.99), self._m).reshape(1, self._m)
-        phi = norm.pdf(x_train.reshape(x_train.shape[0], 1), loc=self._mu, scale=self._bandwidth)
-        phi[phi == 0] = 1e-5
-
         if self._partial_fit_counter > 0:
-            target_min_in_src = self.transform(t_train[0], self.min_t, self.max_t)
-            target_max_in_src = self.transform(t_train[-1], self.min_t, self.max_t)
-            src_coefs = self._coefs
-            self._coefs = self.transform_tdx_coeffs(self._coefs, target_min_in_src, target_max_in_src)
-            self.tgt_timestamps = self.transform(self.orig_timestamps, np.min(t_train), np.max(t_train))
-            self.plot_coefs(src_coefs, self.src_timestamps, self._coefs, self.tgt_timestamps)
+            target_min_in_src = self._transform_timestamps(t_train[0], self._t_min, self._t_max)
+            target_max_in_src = self._transform_timestamps(t_train[-1], self._t_min, self._t_max)
+            src_coefs = self._coeffs
+            self._coeffs = self._transform_tdx_coeffs(self._coeffs, target_min_in_src, target_max_in_src)
+            if self._n_start_points > 1:
+                for i in range(self._temp_multi_start_coeffs.shape[0]):
+                    src_coeffs = self._temp_multi_start_coeffs[i, :].reshape(self._m - 1, self._r + 1)
+                    target_coeffs = self._transform_tdx_coeffs(src_coeffs, target_min_in_src, target_max_in_src)
+                    self._temp_multi_start_coeffs[i, :] = target_coeffs.flatten()
+            self.tgt_timestamps = self._transform_timestamps(self.orig_timestamps, np.min(t_train), np.max(t_train))
+            # self.plot_coefs(src_coefs, self.src_timestamps, self._coeffs, self.tgt_timestamps)
 
-        self.min_t = t_train[0]
-        self.max_t = t_train[-1]
-        t_train_scaled = self.transform(t_train, self.min_t, self.max_t)
-        # self.orig_timestamps = t_train
-        # self.src_timestamps = t_train_scaled
         self.orig_timestamps = np.linspace(0, 1, 100)
-        self.src_timestamps = self.transform(self.orig_timestamps, self.min_t, self.max_t)
-        # self.tgt_timestamps = self.transform(t_train, 0.03333, 0.06667)
-        # t_train_scaled = t_train
+        self.src_timestamps = self._transform_timestamps(self.orig_timestamps, t_train[0], t_train[-1])
 
-        self._u = self._get_u()
-        a = self._get_a(t_train_scaled)
-        j = self._get_j(a)
-        w = self._get_time_weights(t_train_scaled, 0.1, 1)
-
-        c = np.zeros((self._r + 1, self._r))
-        c[1:, :] = np.diagflat(np.ones(self._r))
-
-        res = self._optimize(phi, a, j, c, w, True)
-        self._coefs = res.x.reshape(self._m - 1, self._r + 1)
+        self.fit(x_train, t_train)
         self._partial_fit_counter = self._partial_fit_counter + 1
 
     def fit(self, x_train, t_train):
-        """ Fit the model.
+        """Fit the model.
 
         Parameters
         ----------
@@ -196,45 +180,55 @@ class Tdx:
         """
         self._mu = np.linspace(np.quantile(x_train, 0.01), np.quantile(x_train, 0.99), self._m).reshape(1, self._m)
         phi = norm.pdf(x_train.reshape(x_train.shape[0], 1), loc=self._mu, scale=self._bandwidth)
+
+        # Set zero elements of phi to small non-zero value.
+        # This should prevent runtime errors, since if any entry of phi is equal zero the computation of the function
+        # value includes multiplying by zero. This leads to log(0), which is -Inf.
         phi[phi == 0] = 1e-5
 
-        self.min_t = t_train[0]
-        self.max_t = t_train[-1]
-        t_train_scaled = self.transform(t_train, self.min_t, self.max_t)
+        self._t_min = t_train[0]
+        self._t_max = t_train[-1]
+        if self._t_min >= self._t_max:
+            raise ValueError('Training window has to consist of different timestamps')
+        t_train_scaled = self._transform_timestamps(t_train, self._t_min, self._t_max)
 
-        self._u = self._get_u()
-        a = self._get_a(t_train_scaled)
-        j = self._get_j(a)
-        w = self._get_time_weights(t_train_scaled, 0.1, 1)
+        self._u = self._compute_matrix_u()
+        a = self._compute_matrix_a(t_train_scaled)
+        j = self._compute_matrix_j(a)
+        w = self._compute_time_weights(t_train_scaled, 0.1, 1)
 
         c = np.zeros((self._r + 1, self._r))
         c[1:, :] = np.diagflat(np.ones(self._r))
 
-        res = self._optimize(phi, a, j, c, w)
-        self._coefs = res.x.reshape(self._m - 1, self._r + 1)
+        res = self._compute_tdx_coeffs(phi, a, j, c, w)
+        self._coeffs = res.x.reshape(self._m - 1, self._r + 1)
 
-    def _get_u(self):
-        u_tilde = self._get_u_tilde()
+    def _compute_matrix_u(self):
+        """Compute matrix U used for the ilr-transformation."""
+        u_tilde = self._compute_matrix_u_tilde()
         vn = np.zeros((1, u_tilde.shape[1]))
         for col_idx in range(u_tilde.shape[1]):
             vn[0, col_idx] = np.sqrt(u_tilde[:, col_idx].dot(u_tilde[:, col_idx]))
         u = np.matmul(u_tilde, np.diagflat(1 / vn))
         return u
 
-    def _get_u_tilde(self):
+    def _compute_matrix_u_tilde(self):
+        """Return matrix U tilde needed for computing matrix U."""
         u_tilde = np.zeros((self._m, self._m - 1)) + (-np.triu(np.ones((self._m, self._m - 1))))
         for col_idx in range(self._m - 1):
             u_tilde[col_idx + 1, col_idx] = col_idx + 1
         return u_tilde
 
-    def _get_a(self, t_train):
+    def _compute_matrix_a(self, t_train):
+        """Generate the design matrix of the regression problem."""
         n = self._r + 1
         bases = np.tile(t_train.reshape(t_train.shape[0], 1), (1, n))
         exponents = np.tile(range(n), (t_train.shape[0], 1))
         a = np.power(bases, exponents)
         return a
 
-    def _get_j(self, a):
+    def _compute_matrix_j(self, a):
+        """Generate matrix J needed to compute the gradient."""
         n = self._r + 1
         u_rep = np.zeros((self._m, (self._m - 1) * n))
         for i in range(self._m - 1):
@@ -251,55 +245,53 @@ class Tdx:
         return j
 
     @staticmethod
-    def _get_time_weights(t_train, half_life, t_max):
+    def _compute_time_weights(t_train, half_life, t_max):
         psi = np.log(.5) / (half_life * t_max)
         t = np.max(t_train) - t_train
         w = np.exp(psi * t)
         return w.reshape(w.shape[0], 1)
 
     def _log_likelihood_fun(self, x, phi, a, j, c, w):
-        # tdx_coefs = x.reshape(self.r + 1, self.m - 1).T
-        tdx_coefs = x.reshape(self._m - 1, self._r + 1)
-        e = np.exp(self._u @ tdx_coefs @ a.T)
+        """Computes the objective function."""
+        tdx_coeffs = x.reshape(self._m - 1, self._r + 1)
+        e = np.exp(self._u @ tdx_coeffs @ a.T)
         dot_products = (phi.T * e).sum(axis=0)
         dot_products = dot_products.reshape(1, dot_products.shape[0])
         f = np.sum((w.T * np.log(dot_products)) - (w.T * np.log(np.sum(e, axis=0))))
         if self._lambda > 0:
-            penalty = self._lambda * np.trace(c.T @ tdx_coefs.T @ tdx_coefs @ c)
+            penalty = self._lambda * np.trace(c.T @ tdx_coeffs.T @ tdx_coeffs @ c)
             f = f - penalty
 
-        self.myFun = -1 * f
         return -1 * f
 
-    def _get_gradient(self, x, phi, a, j, c, w):
-        tdx_coefs = x.reshape(self._m - 1, self._r + 1)
-        yt1 = self._get_y_tilde(tdx_coefs, phi, a)
-        yt2 = self._get_y_tilde(tdx_coefs, np.ones(phi.shape), a)
+    def _compute_gradient(self, x, phi, a, j, c, w):
+        tdx_coeffs = x.reshape(self._m - 1, self._r + 1)
+        yt1 = self._compute_y_tilde(tdx_coeffs, phi, a)
+        yt2 = self._compute_y_tilde(tdx_coeffs, np.ones(phi.shape), a)
 
-        g = np.zeros((1, j.shape[1]))
-        for i in range(phi.shape[0]):
-            yt1_prod = yt1[i, :].reshape(1, yt1.shape[1]) @ j[:, :, i] * w[i]
-            yt2_prod = yt2[i, :].reshape(1, yt2.shape[1]) @ j[:, :, i] * w[i]
-            g = g + (yt1_prod - yt2_prod)
+        g = np.einsum('ij,jki->ik', yt1, j) * w - np.einsum('ij,jki->ik', yt2, j) * w
+        g = g.sum(axis=0)
 
         if self._lambda > 0:
-            penalty = self._lambda * tdx_coefs @ c @ c.T
-            penalty = penalty.reshape(1, tdx_coefs.shape[0] * tdx_coefs.shape[1])
+            penalty = self._lambda * tdx_coeffs @ c @ c.T
+            penalty = penalty.reshape(1, tdx_coeffs.shape[0] * tdx_coeffs.shape[1])
             g = g - penalty
 
-        self.myGrad = g
         return -1 * g.flatten('F')
 
-    def _get_y_tilde(self, coefs, y, a):
-        e = np.exp(self._u @ coefs @ a.T)
+    def _compute_y_tilde(self, coeffs, y, a):
+        e = np.exp(self._u @ coeffs @ a.T)
         beta = (y.T * e).sum(axis=0)
         beta = beta.reshape(beta.shape[0], 1)
         tmp = 1 / beta * y
+
+        # Some elements of beta may be 0, therefore the resulting Inf cells from the division need to be handled.
         tmp[np.isinf(tmp)] = 0
         yt = tmp * e.T
         return yt
 
-    def _optimize(self, phi, a, j, c, w, partial=False):
+    def _compute_tdx_coeffs(self, phi, a, j, c, w):
+        """Compute TDX coefficients by solving optimization problem."""
         retry_counter = 0
         succeeded = False
         res = None
@@ -307,62 +299,181 @@ class Tdx:
 
         while not succeeded:
             try:
-                if self._n_start_points > 1:
-                    res = self._multi_start_optimize(self._n_start_points, additional_params)
+                if self._n_start_points == 1:
+                    res = self._optimize(additional_params)
                 else:
-                    if partial and self._coefs.size > 0:
-                        start_points = self._coefs
-                        start_points = start_points.flatten()
-                    else:
-                        start_points = self._generate_random_start_points()
-                    res = self._optimize_log_likelihood(start_points, additional_params)
+                    res = self._multi_start_optimize(additional_params)
             except Exception as exc:
                 print('An exception occurred during optimization: {}'.format(exc))
             finally:
                 if not res or not res.success:
-                    if retry_counter < self._max_optimization_retries:
-                        retry_counter += 1
-                        print('Optimization failed, retrying with different random points...')
-                    else:
-                        raise RuntimeError('Unable to solve optimisation problem!')
+                    retry_counter += 1
+                    self._handle_optimization_error(retry_counter)
                 else:
                     succeeded = True
         return res
 
-    def _multi_start_optimize(self, n_start_points, additional_params):
+    def _optimize(self, additional_params):
+        """Solve optimization problem."""
+        if self._partial_fit_counter > 0:
+            start_points = self._coeffs.flatten()
+        else:
+            start_points = self._generate_random_start_points()
+
+        return self._optimize_log_likelihood(start_points, additional_params)
+
+    def _generate_random_start_points(self):
+        """Generate starting points for optimization."""
+        x = self._random_state.rand(self._m - 1, self._r + 1)
+        x = x.flatten('F')
+        return x
+
+    def _optimize_log_likelihood(self, x, additional_params):
+        """Use BFGS algorithm to solve optimization problem."""
+        res = minimize(self._log_likelihood_fun, x, jac=self._compute_gradient, args=additional_params, method='l-bfgs-b',
+                       options={'disp': self._verbose, 'maxls': 80})
+        return res
+
+    def _multi_start_optimize(self, additional_params):
+        """Tries to find multiple local solutions by starting from various points. Finally only the best of these
+        solutions is returned.
+        """
+        self._init_multi_start_points()
         best_fun = float('inf')
         best_result = None
+        updated_multi_start_coeffs = []
         with ProcessPoolExecutor() as executor:
             futures = []
-            for i in range(n_start_points):
-                start_points = self._generate_random_start_points()
+            for i in range(self._temp_multi_start_coeffs.shape[0]):
+                start_points = self._temp_multi_start_coeffs[i, :]
                 futures.append(executor.submit(self._optimize_log_likelihood, x=start_points,
                                                additional_params=additional_params))
-            for future in concurrent.futures.as_completed(futures):
+            for i, future in enumerate(concurrent.futures.as_completed(futures)):
                 try:
                     optimize_result = future.result()
+                    if optimize_result.success:
+                        updated_multi_start_coeffs.append(optimize_result.x)
                     if optimize_result.success and optimize_result.fun < best_fun:
                         best_fun = optimize_result.fun
                         best_result = optimize_result
                 except Exception as exc:
                     print('An exception occurred during multistart optimization: {}'.format(exc))
 
+        if len(updated_multi_start_coeffs) > 0:
+            self._temp_multi_start_coeffs = np.array(updated_multi_start_coeffs)
         return best_result
 
-    def _generate_random_start_points(self):
-        # x = self._random_state.rand(self._m - 1, self._r + 1)
-        # self._random_state.rand((self._r + 1) * (self._m - 1))
-        x = self._random_state.rand(self._r + 1, self._m - 1).T
-        x = x.flatten('F')
-        return x
+    def _init_multi_start_points(self):
+        """Generate start points for multistart optimization """
+        if self._partial_fit_counter == 0:
+            self._temp_multi_start_coeffs = np.zeros((self._n_start_points, (self._m - 1) * (self._r + 1)))
+            for i in range(self._temp_multi_start_coeffs.shape[0]):
+                self._temp_multi_start_coeffs[i, :] = self._generate_random_start_points()
 
-    def _optimize_log_likelihood(self, x, additional_params):
-        res = minimize(self._log_likelihood_fun, x, jac=self._get_gradient, args=additional_params, method='l-bfgs-b',
-                       options={'disp': self._verbose})
-        return res
+    def _handle_optimization_error(self, retry_counter):
+        if retry_counter < self._max_optimization_attempts and self._partial_fit_counter < 1:
+            print('Optimization failed, retrying with different random points...')
+        else:
+            raise RuntimeError('Unable to solve optimisation problem!')
+
+    @staticmethod
+    def _transform_timestamps(t, min_t, max_t):
+        """Min-max scaling timestamps into range [0;0.5]."""
+        return (t - min_t) / (2 * (max_t - min_t))
+
+    def _transform_tdx_coeffs(self, tdx_coeffs, min_src, max_src):
+        """Transforms the TDX coeffcients from source to target time domain.
+
+        Parameters
+        ----------
+        tdx_coeffs : numpy.ndarray of shape (m-1, r+1)
+            TDX coefficients
+        min_src : float
+            Min value specified in source coordinates
+        max_src : float
+            Max value specified in source coordinates
+
+        Returns
+        -------
+        numpy.ndarray of shape (order+1,)
+            TDX coefficents transformed into target domain.
+        """
+        transformed_coeffs = np.zeros(tdx_coeffs.shape)
+        for i in range(tdx_coeffs.shape[0]):
+            transformed_coeffs[i, :] = self._transform_poly_coeffs(tdx_coeffs[i, :], min_src, max_src)
+
+        return transformed_coeffs
+
+    def _transform_poly_coeffs(self, coeffs_src, min_src, max_src):
+        """Transforms the coeffcients of a polynomial function f(s) within a source time domain S to a
+        polynomial function g(t) in a target domain T, where the interval [0;0.5] in the target domain
+        corresponds to the interval [min_src; max_src] in the source domain.
+
+        Parameters
+        ----------
+        coeffs_src : numpy.ndarray of shape (order+1,)
+            Array with coefficients b0, b1, b2, ...
+        min_src : float
+            Min value specified in source coordinates
+        max_src : float
+            Max value specified in source coordinates
+
+        Returns
+        -------
+        numpy.ndarray of shape (order+1,)
+            Coefficents transformed into target domain.
+        """
+        poly_coeffs = []
+        unit_src = max_src - min_src
+        for rIdx in range(len(coeffs_src)):
+            df = self._poly_eval(coeffs_src, min_src, rIdx)
+            coeff = df * math.pow(2 * unit_src, rIdx) * math.pow(math.factorial(rIdx), -1)
+            poly_coeffs.append(coeff)
+
+        return poly_coeffs
+
+    @staticmethod
+    def _poly_eval(b, x, derivative: int = 0):
+        """Calculates the value of a polynomial function f(x) or its derivatives f'(x), f''(x), ...
+        at the argument (or vector of function arguments) x.
+
+        Parameters
+        ----------
+        b : numpy.ndarray of shape (order+1,)
+            Array with coefficients b0, b1, b2, ...
+        x : float
+            Value, where to calculate f(x)
+        derivative : int
+            Number specifying whether the value of the function is requested (derivative == 0, default) or
+            a higher order derivative (any non-negative integer value for derivative)
+
+        Returns
+        -------
+        float
+            Value of the polynomial function or its derivative.
+        """
+        v = 0
+        for i in range(derivative, len(b)):
+            v = v + (math.factorial(i) / math.factorial(i - derivative)) * b[i] * math.pow(x, (i - derivative))
+        return v
+
+    def plot_coefs(self, src_coefs, src_timestamps, tgt_coefs, tgt_timestamps):
+        src_fval = np.zeros((src_coefs.shape[0], src_timestamps.shape[0]))
+        tgt_fval = np.zeros((src_coefs.shape[0], src_timestamps.shape[0]))
+        bla = np.zeros((src_coefs.shape[0], src_timestamps.shape[0]))
+        for i in range(src_coefs.shape[0]):
+            for j in range(src_timestamps.shape[0]):
+                src_fval[i, j] = self._poly_eval(src_coefs[0, :], src_timestamps[j], i)
+                tgt_fval[i, j] = self._poly_eval(tgt_coefs[0, :], tgt_timestamps[j], i)
+                bla[i, j] = self._poly_eval(src_coefs[0, :], tgt_timestamps[j], i)
+
+        plt.plot(self.orig_timestamps, src_fval[1, :], 'b+')
+        plt.plot(self.orig_timestamps, tgt_fval[1, :], 'r+')
+        plt.plot(self.orig_timestamps, bla[1, :], 'g+')
+        plt.show()
 
     def get_gamma(self, t):
-        """ Compute the basis weights at at a given time point t.
+        """Compute the basis weights at at a given time point t.
 
         Parameters
         ----------
@@ -374,10 +485,11 @@ class Tdx:
         numpy.ndarray of shape (n_time_values, m)
             Basis weights at a given time point t.
         """
-        bases = np.tile(t.reshape(t.shape[0], 1), (1, self._r + 1))
-        exponents = np.tile(range(self._r + 1), (t.shape[0], 1))
+        t_scaled = self._transform_timestamps(t, self._t_min, self._t_max)
+        bases = np.tile(t_scaled.reshape(t_scaled.shape[0], 1), (1, self._r + 1))
+        exponents = np.tile(range(self._r + 1), (t_scaled.shape[0], 1))
         a = np.power(bases, exponents)
-        e = np.exp(self._u @ self._coefs @ a.T)
+        e = np.exp(self._u @ self._coeffs @ a.T)
         i = np.ones((self._m, 1))
         gamma = (e / (i * e.sum(axis=0))).T
         return gamma
@@ -397,57 +509,10 @@ class Tdx:
         numpy.ndarray of shape (n_time_values, n_samples)
             Probability density function evaluated at point x and time point t.
         """
-        t_scaled = self.transform(t, self.min_t, self.max_t)
-        # t_scaled = t
-        pdf = np.zeros((t_scaled.shape[0], x.shape[0]))
+        pdf = np.zeros((t.shape[0], x.shape[0]))
         x_reshaped = x.reshape(1, x.shape[0])
-        g = self.get_gamma(t_scaled)
+        g = self.get_gamma(t)
         for i in range(self._m):
             pdf = pdf + g[:, i].reshape(g.shape[0], 1) @ norm.pdf(x_reshaped, loc=self._mu[0, i], scale=self._bandwidth)
         return pdf
-
-    def transform(self, t, min_t, max_t):
-        return 0 + ((t - min_t) / (2*(max_t - min_t)))
-
-    def poly_eval(self, b, x, derivative: int = 0):
-        v = 0
-        for i in range(derivative, len(b)):
-            v = v + (math.factorial(i)/math.factorial(i-derivative)) * b[i] * math.pow(x, (i-derivative))
-        return v
-
-    def transform_poly_coeffs(self, coeffs_src, min_src, max_src):
-        poly_coeffs = []
-        unit_src = max_src - min_src
-        for rIdx in range(len(coeffs_src)):
-            df = self.poly_eval(coeffs_src, min_src, rIdx)
-            coeff = df * math.pow(2*unit_src, rIdx) * math.pow(math.factorial(rIdx), -1)
-            poly_coeffs.append(coeff)
-
-        return poly_coeffs
-
-    def transform_tdx_coeffs(self, tdx_coeffs, min_src, max_src):
-        poly_coeffs = np.zeros(tdx_coeffs.shape)
-        for i in range(tdx_coeffs.shape[0]):
-            transformed_coeffs = self.transform_poly_coeffs(tdx_coeffs[i, :], min_src, max_src)
-            poly_coeffs[i, :] = transformed_coeffs
-
-        return poly_coeffs
-
-    def plot_coefs(self, src_coefs, src_timestamps, tgt_coefs, tgt_timestamps):
-        src_fval = np.zeros((src_coefs.shape[0], src_timestamps.shape[0]))
-        tgt_fval = np.zeros((src_coefs.shape[0], src_timestamps.shape[0]))
-        bla = np.zeros((src_coefs.shape[0], src_timestamps.shape[0]))
-        for i in range(src_coefs.shape[0]):
-            for j in range(src_timestamps.shape[0]):
-                src_fval[i, j] = self.poly_eval(src_coefs[0, :], src_timestamps[j], i)
-                tgt_fval[i, j] = self.poly_eval(tgt_coefs[0, :], tgt_timestamps[j], i)
-                bla[i, j] = self.poly_eval(src_coefs[0, :], tgt_timestamps[j], i)
-
-        x_grid = np.linspace(0, 1, 100)
-        plt.plot(self.orig_timestamps, src_fval[1, :], 'b+')
-        plt.plot(self.orig_timestamps, tgt_fval[1, :], 'r+')
-        plt.plot(self.orig_timestamps, bla[1, :], 'g+')
-        plt.show()
-
-        rr = 4
 
