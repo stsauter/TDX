@@ -28,15 +28,16 @@ test_idx = range(train_idx[-1] + 1, ds.x.shape[0])
 x_test = ds.x[test_idx]
 t_test = ds.t[test_idx]
 
-model = Tdx(14, 0.6, 5, 2, verbose=True)
+model = Tdx(14, 0.6, 1, 2, seed=32, verbose=True, n_start_points=1)
+
 # model.fit_partial(x_train, t_train)
 coefs = np.array([
     [10, -2, 0.1],
     [10, -2, 0.1]])
-dd = model.transform_tdx_coeffs(coefs, 5, 10)
-# model.fit(x_train[0:1200], t_train[0:1200])
+dd = model._transform_tdx_coeffs(coefs, 5, 10)
+#model.fit(x_train[0:5000], t_train[0:5000])
 orig_timestamps = t_train
-for x_part, t_part in get_every_n(x_train, t_train, n=1500):
+for x_part, t_part in get_every_n(x_train, t_train, n=825):
     model.fit_partial(x_part, t_part)
 
 # model.fit(x_train, t_train)
