@@ -6,7 +6,7 @@ from src.data.skew_normal_drift_stream import SkewNormalDriftStream
 
 
 class WeightDriftStream(SkewNormalDriftStream):
-    """ Weightdrift stream.
+    """Weightdrift stream.
 
     The weightdrift stream is an artificial generated univariate data stream described in [1]_.
 

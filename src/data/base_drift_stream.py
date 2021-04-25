@@ -4,7 +4,7 @@ from abc import ABCMeta, abstractmethod
 
 
 class BaseDriftStream(metaclass=ABCMeta):
-    """ Base class for streams with concept drift.
+    """Base class for streams with concept drift.
 
     This abstract class defines the minimum requirements of a stream with concept drift
 
@@ -35,8 +35,7 @@ class BaseDriftStream(metaclass=ABCMeta):
 
     @property
     def n_samples(self):
-        """
-        Return the number of samples.
+        """Return the number of samples.
 
         Returns
         -------
@@ -47,8 +46,7 @@ class BaseDriftStream(metaclass=ABCMeta):
 
     @property
     def n_segments(self):
-        """
-        Return the number of time segments.
+        """Return the number of time segments.
 
         Returns
         -------
@@ -59,8 +57,7 @@ class BaseDriftStream(metaclass=ABCMeta):
 
     @property
     def n_components(self):
-        """
-         Return the number of streaming components.
+        """Return the number of streaming components.
 
          Returns
          -------
@@ -71,8 +68,7 @@ class BaseDriftStream(metaclass=ABCMeta):
 
     @property
     def x(self):
-        """
-         Return data points of the data stream.
+        """Return data points of the data stream.
 
          Returns
          -------
@@ -83,8 +79,7 @@ class BaseDriftStream(metaclass=ABCMeta):
 
     @property
     def t(self):
-        """
-         Return array containing time segments.
+        """Return array containing time segments.
 
          Returns
          -------
@@ -95,8 +90,7 @@ class BaseDriftStream(metaclass=ABCMeta):
 
     @property
     def c(self):
-        """
-         Return array containing the streaming components.
+        """Return array containing the streaming components.
 
          Returns
          -------
@@ -119,7 +113,7 @@ class BaseDriftStream(metaclass=ABCMeta):
         return segment_array
 
     def pdf(self, x, t):
-        """ Compute the probability density at point x and at a given time point t.
+        """Compute the probability density at point x and at a given time point t.
 
         Parameters
         ----------

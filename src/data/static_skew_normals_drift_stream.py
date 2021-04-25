@@ -6,7 +6,7 @@ from src.data.skew_normal_drift_stream import SkewNormalDriftStream
 
 
 class StaticSkewNormalsDriftStream(SkewNormalDriftStream):
-    """ Staticskewnormals stream.
+    """Staticskewnormals stream.
 
     The staticskewnormals stream is an artificial generated univariate data stream described in [1]_.
 

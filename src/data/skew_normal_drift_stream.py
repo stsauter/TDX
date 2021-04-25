@@ -8,7 +8,7 @@ from src.proba.skew_normal import SkewNormal
 
 
 class SkewNormalDriftStream(BaseDriftStream):
-    """ Base class for streams which consists of skew normal components.
+    """Base class for streams which consists of skew normal components.
 
     Parameters
     ----------
@@ -43,8 +43,7 @@ class SkewNormalDriftStream(BaseDriftStream):
 
     @property
     def dist_support(self):
-        """
-         Return the distribution support.
+        """Return the distribution support.
 
          Returns
          -------

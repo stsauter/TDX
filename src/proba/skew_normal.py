@@ -3,7 +3,7 @@ from scipy.stats import norm, skewnorm
 
 
 class SkewNormal:
-    """ Skew normal distribution.
+    """Skew normal distribution.
 
     Parameters
     ----------
@@ -27,7 +27,7 @@ class SkewNormal:
         self._seed = seed
 
     def truncate(self, min_value, max_value):
-        """ Set the supported value range of this probability distribution.
+        """Set the supported value range of this probability distribution.
 
         Parameters
         ----------
@@ -41,7 +41,7 @@ class SkewNormal:
         self._max_value = max_value
 
     def generate_random_numbers(self, n):
-        """ Generate n skew normal random variables.
+        """Generate n skew normal random variables.
 
         Parameters
         ----------
@@ -66,7 +66,7 @@ class SkewNormal:
         return x[0, :n]
 
     def cdf(self, x):
-        """ Compute the cumulative distribution function at point x.
+        """Compute the cumulative distribution function at point x.
 
         Parameters
         ----------
@@ -81,7 +81,7 @@ class SkewNormal:
         return skewnorm.cdf(x, self._alpha, loc=self._xi, scale=self._omega)
 
     def pdf(self, x):
-        """ Compute the probability density at point x.
+        """Compute the probability density at point x.
 
         Parameters
         ----------
