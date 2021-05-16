@@ -29,9 +29,8 @@ infile.close()
 
 """
 x = np.load('x.npy')
-x_vals = np.load('x_vals.npy')
 t = np.load('t.npy')
-
+"
 scaler = StandardScaler()
 X_scaled = scaler.fit_transform(x)
 

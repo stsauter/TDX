@@ -1,3 +1,5 @@
+import math
+
 import numpy as np
 import pandas as pd
 import plotly.express as px
@@ -8,10 +10,10 @@ import plotly.graph_objects as go
 
 from dash.dependencies import Input, Output
 from dash.exceptions import PreventUpdate
-import matplotlib.pyplot as plt
-from scipy.cluster.hierarchy import dendrogram
+
 from scipy.cluster import hierarchy
-from sklearn.cluster import AgglomerativeClustering
+from scipy.cluster.hierarchy import fcluster
+from sklearn.preprocessing import StandardScaler
 from src.spatio_temporal_generators.grid_sampler import GridSampler
 
 
@@ -21,16 +23,14 @@ class DensityEvaluator:
         self._model1 = model1
         self._model2 = model2
         self._spatio_temp_generator = spatio_temp_generator
-        self._t = np.array([])
-        self._df = pd.DataFrame()
-        self._cluster = False
         app.callback(
             Output('density-graph', 'figure'),
             Input('x_eval_locations', 'value'),
             Input('time-range-slider', 'value'),
             Input('step-size-slider', 'value'),
             Input('threshold', 'value'),
-            Input('chart-type', 'value')
+            Input('chart-type', 'value'),
+            Input('clustering-active', 'value')
         )(self.update_graph)
 
     def compute_differences(self, t_start: float, t_end: float, step_size: float, n_spatial_points: int, threshold, chart_type):
@@ -42,35 +42,55 @@ class DensityEvaluator:
         abs_dens_differences = abs(model1_dens - model2_dens)
         abs_dens_differences[abs_dens_differences < threshold] = 0
         if chart_type == 'scatter':
-            self._df = pd.DataFrame({
+            # self.cluster(x, t, abs_dens_differences)
+            return pd.DataFrame({
                 "Time": np.repeat(t, n_spatial_points),
                 "X values": np.tile(x, t.shape[0]),
                 "difference": dens_differences.flatten(),
                 "abs difference": abs_dens_differences.flatten()
             })
         else:
-            self._df = pd.DataFrame(abs_dens_differences.T)
-            self._t = t
+            df = pd.DataFrame(abs_dens_differences.T)
+            df.columns = t
+            return df
 
-        if self._cluster:
-            self.cluster(x, t, abs_dens_differences)
-
-    def cluster(self, x_vals, t, diff):
+    def cluster(self, x, t, diff):
+        """
         x = np.zeros(shape=(t.shape[0] * x_vals.shape[0], 3))
         counter = 0
         for i in range(t.shape[0]):
             for j in range(x_vals.shape[0]):
                 x[counter] = [t[i], x_vals[j], diff[i, j]]
                 counter = counter + 1
+        """
+        dataset = pd.concat([t, x, diff], axis=1)
 
-        model = AgglomerativeClustering(distance_threshold=1.0, n_clusters=None)
-        model = model.fit(x)
+        scaler = StandardScaler()
+        x_scaled = scaler.fit_transform(dataset)
+        Z = hierarchy.linkage(x_scaled, 'ward')
+        n_clusters = 2
+        clusters = fcluster(Z, n_clusters, criterion='maxclust')
+        cluster_labels = np.empty(clusters.shape[0], dtype=object)
+        cluster_diffs = np.zeros(n_clusters)
+        for i in range(n_clusters):
+            cluster_diffs[i] = np.sum(diff[clusters == i + 1]) / len(diff[clusters == i + 1])
 
-        Z = hierarchy.linkage(model.children_, 'ward')
-        plt.figure(figsize=(20, 10))
-        dn = hierarchy.dendrogram(Z)
-        sd = 3
+        dev_cluster_id = np.argmax(cluster_diffs) + 1
+        cluster_labels[clusters == dev_cluster_id] = 'High deviations'
+        cluster_labels[clusters != dev_cluster_id] = 'Low deviations'
 
+        for i, row in enumerate(x_scaled):
+            for j, column in enumerate(row):
+                if not math.isclose(x_scaled[i, j], x_scaled[i][j], abs_tol=0.01):
+                    a = x_scaled[i, j]
+                    aa = x_scaled[i, j]
+
+        return pd.DataFrame({
+            "Time": dataset["Time"],
+            "X values": dataset["X values"],
+            "clusters": cluster_labels,
+            "abs difference": dataset["abs difference"]
+        })
 
     def plot_differences(self):
         return html.Div(children=[
@@ -130,19 +150,37 @@ class DensityEvaluator:
                     ],
                     value='scatter'
                 ),
-            ], style={'width': '20%', 'margin-bottom': '2em', 'display': 'inline-block'})
+            ], style={'width': '20%', 'display': 'inline-block'}),
+            html.Div(children=[
+                html.H4(children='Clustering'),
+                dcc.Checklist(
+                    id='clustering-active',
+                    options=[
+                        {'label': 'Clustering activated', 'value': 'active'},
+                    ]
+                ),
+            ], style={'width': '20%', 'margin-bottom': '2em'})
         ])
 
-    def update_graph(self, n_spatial_points, time_range_value, step_size, threshold, chart_type):
+    def update_graph(self, n_spatial_points, time_range_value, step_size, threshold, chart_type, clustering_active):
         if n_spatial_points is None or threshold is None:
             raise PreventUpdate
-        self.compute_differences(time_range_value[0], time_range_value[1], step_size, n_spatial_points, threshold, chart_type)
-        if chart_type == 'scatter':
-            fig = px.scatter(self._df, x="Time", y="X values", color="abs difference", size="abs difference")
+        df = self.compute_differences(time_range_value[0], time_range_value[1], step_size, n_spatial_points, threshold,
+                                 chart_type)
+
+        if clustering_active and len(clustering_active) == 1:
+            cluster_df = self.cluster(df['X values'], df['Time'], df['abs difference'])
+            fig = px.scatter(cluster_df, x="Time", y="X values", color="clusters", color_discrete_map={
+                "High deviations": "red",
+                "Low deviations": "blue"})
         else:
-            fig = go.Figure(data=go.Heatmap(
-                z=self._df,
-                x=self._t,
-                hoverongaps=False))
+            if chart_type == 'scatter':
+                fig = px.scatter(df, x="Time", y="X values", color="abs difference", size="abs difference")
+            else:
+                fig = go.Figure(data=go.Heatmap(
+                    z=df,
+                    x=df.columns,
+                    hoverongaps=False))
+
         fig.update_layout(transition_duration=500)
         return fig
