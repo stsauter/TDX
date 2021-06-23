@@ -42,6 +42,17 @@ class SkewNormalDriftStream(BaseDriftStream):
         self._seed = check_random_state(seed)
 
     @property
+    def seed(self):
+        """Return seed.
+
+         Returns
+         -------
+         int:
+             Random seed.
+         """
+        return self._seed
+
+    @property
     def dist_support(self):
         """Return the distribution support.
 
@@ -55,7 +66,7 @@ class SkewNormalDriftStream(BaseDriftStream):
     def _generate_data(self):
         params = self._get_distribution_params()
         for i in range(self._n_segments):
-            n_seg_samples = np.rint(self._n_samples * (self._mixture_coefs[:, i] * self._seg_data_per[i])).astype(int)
+            n_seg_samples = np.rint(self.n_samples * (self._mixture_coefs[:, i] * self._seg_data_per[i])).astype(int)
             x_s = np.array([])
             c_s = np.array([])
             t_s = np.array([])

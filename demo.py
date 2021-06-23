@@ -1,13 +1,24 @@
+import itertools
 import math
+from collections import deque
+
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
+
+queue = deque(maxlen=3)
+queue.append(1)
+queue.append(2)
+queue.append(3)
+queue.append(4)
+ff = queue.popleft()
+dfg = 3
 
 from src.data.mean_drift_stream import MeanDriftStream
 from src.data.sigma_change_drift_stream import SigmaChangeDriftStream
 from src.data.static_skew_normals_drift_stream import StaticSkewNormalsDriftStream
 from src.data.weight_drift_stream import WeightDriftStream
 from src.tdx.tdx import Tdx
-
 
 def get_every_n(x, t, n=2):
     for i in range(x.shape[0] // n):
@@ -28,7 +39,19 @@ test_idx = range(train_idx[-1] + 1, ds.x.shape[0])
 x_test = ds.x[test_idx]
 t_test = ds.t[test_idx]
 
-model = Tdx(14, 0.6, 1, 2, seed=32, verbose=True, n_start_points=1)
+model = Tdx(14, 0.6, 5, 2, seed=32, verbose=True, n_start_points=1)
+print(model)
+df = pd.DataFrame({'timestamp': t_train, 'value': x_train})
+model.learn_many(df)
+
+# model = Tdx(14, 0.6, 1, 2, cache_size=4125, grace_period=4125, seed=32, verbose=True, n_start_points=1)
+counter = 0
+for x in ds:
+    density = model.predict_one(x)
+    #model.learn_one(x)
+    counter = counter + 1
+    if counter == len(x_train):
+        break
 
 # model.fit_partial(x_train, t_train)
 coefs = np.array([
@@ -37,8 +60,8 @@ coefs = np.array([
 dd = model._transform_tdx_coeffs(coefs, 5, 10)
 #model.fit(x_train[0:5000], t_train[0:5000])
 orig_timestamps = t_train
-for x_part, t_part in get_every_n(x_train, t_train, n=825):
-    model.fit_partial(x_part, t_part)
+#for x_part, t_part in get_every_n(x_train, t_train, n=4125):
+    #model.fit_partial(x_part, t_part)
 
 # model.fit(x_train, t_train)
 # gamma = model.get_gamma(ds.t)
@@ -46,6 +69,11 @@ for x_part, t_part in get_every_n(x_train, t_train, n=825):
 x_grid = np.linspace(np.quantile(ds.x, 0.01), np.quantile(ds.x, 0.99), 200)
 true_dens = ds.pdf(x_grid, t_test)
 pred_dens = model.pdf(x_grid, t_test)
+
+x_many_test = np.tile(x_grid.reshape(1, x_grid.shape[0]), (t_test.shape[0], 1))
+df = pd.concat((pd.DataFrame({'timestamp': t_test}), pd.DataFrame(x_grid)), axis=1)
+pred_dens2 = model.predict_many(df)
+
 
 time_idxs = [0, math.ceil(x_test.shape[0] / 2), x_test.shape[0] - 1]
 fig, axs = plt.subplots(len(time_idxs))

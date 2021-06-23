@@ -2,14 +2,19 @@ import concurrent
 import math
 
 import numpy as np
+import pandas as pd
 
+from collections import deque
 from concurrent.futures import ProcessPoolExecutor
 from scipy.optimize import minimize
 from scipy.stats import norm
 from sklearn.utils import check_random_state
 import matplotlib.pyplot as plt
 
-class Tdx:
+from river.base.density_estimator import MiniBatchDensityEstimator
+
+
+class Tdx(MiniBatchDensityEstimator):
     """TDX stream density estimator.
 
     Parameters
@@ -73,6 +78,8 @@ class Tdx:
             r: int,
             lambda_reg: int or float,
             n_start_points: int = 1,
+            cache_size: int = 1000,
+            grace_period: int = 1000,
             seed: int or np.random.RandomState = None,
             verbose: bool = False
     ):
@@ -81,12 +88,15 @@ class Tdx:
         self._r = r
         self._lambda = lambda_reg
         self._n_start_points = n_start_points
+        self._cache_size = cache_size
+        self._grace_period = grace_period
         self._verbose = verbose
         self._random_state = check_random_state(seed)
         self._mu = np.array([])
         self._coeffs = np.array([])
         self._u = np.array([])
         self._max_optimization_attempts = 5
+        self._n_training_instances = 0
         self._partial_fit_counter = 0
         self._t_min = 0
         self._t_max = 0
@@ -94,6 +104,10 @@ class Tdx:
         if self._n_start_points < 1:
             raise ValueError("Number of starting points has to be greater than 0")
         self._temp_multi_start_coeffs = np.array([])
+
+        if self._grace_period > self._cache_size:
+            raise ValueError("Parameter cache size may not be greater than the cache size")
+        self._queue = deque(maxlen=self._cache_size)
 
     @property
     def m(self):
@@ -139,6 +153,53 @@ class Tdx:
         """
         return self._lambda
 
+    @property
+    def n_start_points(self):
+        return self._n_start_points
+
+    @property
+    def cache_size(self):
+        return self._cache_size
+
+    @property
+    def grace_period(self):
+        return self._grace_period
+
+    @property
+    def seed(self):
+        return self._random_state
+
+    @property
+    def verbose(self):
+        return self._verbose
+
+    def learn_one(self, x: dict):
+        self._queue.append(x)
+        self._n_training_instances = self._n_training_instances + 1
+        if self._n_training_instances == self._grace_period:
+            self._n_training_instances = 0
+            if len(self._queue) == self._cache_size:
+                x_train, t_train = self._get_train_arrays_from_cache()
+                self.fit_partial(x_train, t_train)
+        return self
+
+    def _get_train_arrays_from_cache(self):
+        grouped_dict = dict()
+        instances = list(self._queue)
+        for k, v in [(key, instance[key]) for instance in instances for key in instance]:
+            if k not in grouped_dict:
+                grouped_dict[k] = [v]
+            else:
+                grouped_dict[k].append(v)
+
+        t_train = np.array(grouped_dict['timestamp'])
+        for key in grouped_dict.keys():
+            if key != 'timestamp':
+                x_train = np.array(grouped_dict[key])
+                break
+
+        return x_train, t_train
+
     def fit_partial(self, x_train, t_train):
         """Fit the model partially.
 
@@ -167,6 +228,15 @@ class Tdx:
 
         self.fit(x_train, t_train)
         self._partial_fit_counter = self._partial_fit_counter + 1
+
+    def learn_many(self, X: pd.DataFrame):
+        t_train = np.array(X['timestamp'])
+        for column in X:
+            if column != 'timestamp':
+                x_train = np.array(X[column])
+                break
+        self.fit(x_train, t_train)
+        return self
 
     def fit(self, x_train, t_train):
         """Fit the model.
@@ -330,8 +400,8 @@ class Tdx:
 
     def _optimize_log_likelihood(self, x, additional_params):
         """Use BFGS algorithm to solve optimization problem."""
-        res = minimize(self._log_likelihood_fun, x, jac=self._compute_gradient, args=additional_params, method='l-bfgs-b',
-                       options={'disp': self._verbose, 'maxls': 80})
+        res = minimize(self._log_likelihood_fun, x, jac=self._compute_gradient, args=additional_params,
+                       method='l-bfgs-b', options={'disp': self._verbose, 'maxls': 80})
         return res
 
     def _multi_start_optimize(self, additional_params):
@@ -472,27 +542,29 @@ class Tdx:
         plt.plot(self.orig_timestamps, bla[1, :], 'g+')
         plt.show()
 
-    def get_gamma(self, t):
-        """Compute the basis weights at at a given time point t.
+    def predict_one(self, x: dict):
+        if self._partial_fit_counter == 0:
+            return 0
+        t_pred = np.array([x['timestamp']])
+        for key in x.keys():
+            if key != 'timestamp':
+                x_pred = np.array([x[key]])
+                break
+        return self.pdf(x_pred, t_pred)[0, 0]
 
-        Parameters
-        ----------
-        t : numpy.ndarray of shape (n_time_values,)
-            Time values at which the basis weights should be computed.
+    def predict_many(self, X: pd.DataFrame):
+        t = X[X['timestamp'].notnull()]['timestamp'].to_numpy()
+        for column in X:
+            if column != 'timestamp':
+                data_col_name = column
+                break
+        x_grid = X[X[data_col_name].notnull()][data_col_name].to_numpy()
 
-        Returns
-        -------
-        numpy.ndarray of shape (n_time_values, m)
-            Basis weights at a given time point t.
-        """
-        t_scaled = self._transform_timestamps(t, self._t_min, self._t_max)
-        bases = np.tile(t_scaled.reshape(t_scaled.shape[0], 1), (1, self._r + 1))
-        exponents = np.tile(range(self._r + 1), (t_scaled.shape[0], 1))
-        a = np.power(bases, exponents)
-        e = np.exp(self._u @ self._coeffs @ a.T)
-        i = np.ones((self._m, 1))
-        gamma = (e / (i * e.sum(axis=0))).T
-        return gamma
+        #dens = np.zeros((t.shape[0]))
+        #for i, t in enumerate(t):
+            #dens[i] = self.pdf(x_grid.iloc[i].to_numpy(), np.array([t]))[0, 0]
+
+        return pd.DataFrame(self.pdf(x_grid, t))
 
     def pdf(self, x, t):
         """ Predict the probability density at point x and at a given time point t.
@@ -516,3 +588,24 @@ class Tdx:
             pdf = pdf + g[:, i].reshape(g.shape[0], 1) @ norm.pdf(x_reshaped, loc=self._mu[0, i], scale=self._bandwidth)
         return pdf
 
+    def get_gamma(self, t):
+        """Compute the basis weights at at a given time point t.
+
+        Parameters
+        ----------
+        t : numpy.ndarray of shape (n_time_values,)
+            Time values at which the basis weights should be computed.
+
+        Returns
+        -------
+        numpy.ndarray of shape (n_time_values, m)
+            Basis weights at a given time point t.
+        """
+        t_scaled = self._transform_timestamps(t, self._t_min, self._t_max)
+        bases = np.tile(t_scaled.reshape(t_scaled.shape[0], 1), (1, self._r + 1))
+        exponents = np.tile(range(self._r + 1), (t_scaled.shape[0], 1))
+        a = np.power(bases, exponents)
+        e = np.exp(self._u @ self._coeffs @ a.T)
+        i = np.ones((self._m, 1))
+        gamma = (e / (i * e.sum(axis=0))).T
+        return gamma

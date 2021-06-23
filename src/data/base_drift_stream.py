@@ -1,9 +1,11 @@
 import numpy as np
 
-from abc import ABCMeta, abstractmethod
+from abc import abstractmethod
+
+from river.datasets import base
 
 
-class BaseDriftStream(metaclass=ABCMeta):
+class BaseDriftStream(base.SyntheticDataset):
     """Base class for streams with concept drift.
 
     This abstract class defines the minimum requirements of a stream with concept drift
@@ -22,7 +24,8 @@ class BaseDriftStream(metaclass=ABCMeta):
         if n_segments > n_samples:
             raise ValueError('The number of segments may not be greater than the number of samples')
 
-        self._n_samples = n_samples
+        super().__init__(n_features=2, n_outputs=0, n_samples=n_samples, task=base.DENS_EST)
+
         self._n_segments = n_segments
         self._n_components = n_components
         self._segment_length = 1 / n_segments
@@ -32,17 +35,6 @@ class BaseDriftStream(metaclass=ABCMeta):
         self._x = np.array([])
         self._t = np.array([])
         self._c = np.array([])
-
-    @property
-    def n_samples(self):
-        """Return the number of samples.
-
-        Returns
-        -------
-        int:
-            the number of samples
-        """
-        return self._n_samples
 
     @property
     def n_segments(self):
@@ -98,6 +90,13 @@ class BaseDriftStream(metaclass=ABCMeta):
              Array containing the component numbers which have generated the corresponding data points.
          """
         return self._c
+
+    def __iter__(self):
+        for i, x_val in enumerate(self._x):
+            x = dict()
+            x['timestamp'] = self._t[i]
+            x['value'] = x_val
+            yield x
 
     @abstractmethod
     def _generate_data(self):
