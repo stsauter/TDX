@@ -160,9 +160,10 @@ class Tdx:
                     target_coeffs = self._transform_tdx_coeffs(src_coeffs, target_min_in_src, target_max_in_src)
                     self._temp_multi_start_coeffs[i, :] = target_coeffs.flatten()
             self.tgt_timestamps = self._transform_timestamps(self.orig_timestamps, np.min(t_train), np.max(t_train))
-            # self.plot_coefs(src_coefs, self.src_timestamps, self._coeffs, self.tgt_timestamps)
+            self.plot_coefs(src_coefs, self.src_timestamps, self._coeffs, self.tgt_timestamps)
 
         self.orig_timestamps = np.linspace(0, 1, 100)
+        self.orig_timestamps = np.linspace(0, 80000, 200)
         self.src_timestamps = self._transform_timestamps(self.orig_timestamps, t_train[0], t_train[-1])
 
         self.fit(x_train, t_train)
@@ -195,7 +196,7 @@ class Tdx:
         self._u = self._compute_matrix_u()
         a = self._compute_matrix_a(t_train_scaled)
         j = self._compute_matrix_j(a)
-        w = self._compute_time_weights(t_train_scaled, 0.1, 1)
+        w = self._compute_time_weights(t_train_scaled, 0.8, 1)
 
         c = np.zeros((self._r + 1, self._r))
         c[1:, :] = np.diagflat(np.ones(self._r))
