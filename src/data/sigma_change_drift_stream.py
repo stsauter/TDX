@@ -42,4 +42,3 @@ class SigmaChangeDriftStream(SkewNormalDriftStream):
         ])
         self._shape = self._repeat_segment_values([2, 1, -0.8])
         self._mixture_coefs = np.tile(1 / self._n_components, (self._n_components, n_segments))
-        self._generate_data()

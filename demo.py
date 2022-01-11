@@ -1,18 +1,9 @@
 import itertools
 import math
-from collections import deque
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-
-queue = deque(maxlen=3)
-queue.append(1)
-queue.append(2)
-queue.append(3)
-queue.append(4)
-ff = queue.popleft()
-dfg = 3
 
 from src.data.mean_drift_stream import MeanDriftStream
 from src.data.sigma_change_drift_stream import SigmaChangeDriftStream
@@ -28,9 +19,36 @@ def get_every_n(x, t, n=2):
         yield x[last_idx:], t[last_idx:]
 
 ds = WeightDriftStream(25000, 120, dist_support=[0, 7], seed=1)
+x_data = pd.read_csv('x.csv', header=None)
+t_data = pd.read_csv('t.csv', header=None)
+x_inc = []
+t_inc = []
+i = 0
+for x in ds:
+    x_inc.append(x.get('value'))
+    t_inc.append(x.get('timestamp'))
+    assert math.isclose(x_data[0].iloc[i], x_inc[i], abs_tol=0.001)
+    assert math.isclose(t_data[0].iloc[i], t_inc[i], abs_tol=0.001)
+    i = i + 1
 # ds = MeanDriftStream(25000, 120, dist_support=[0, 12], seed=1)
 # ds = SigmaChangeDriftStream(25000, 120, dist_support=[0, 10], seed=1)
 # ds = StaticSkewNormalsDriftStream(25000, 120, dist_support=[0, 11], seed=1)
+
+model = Tdx(m=14, bandwidth=0.6, r=5, lambda_reg=2,seed=32, cache_size=2500, grace_period=2500)
+
+x_values = np.zeros(25000)
+t_values = np.zeros(25000)
+i = 0
+for x in ds:
+    x_values[i] = x['value']
+    t_values[i] = x['timestamp']
+    i = i + 1
+
+dd = list(ds)
+
+for x in ds:
+    density = model.predict_density_one(x)
+    model.learn_one(x)
 
 train_idx = range(math.ceil(0.66 * ds.x.shape[0]))
 x_train = ds.x[train_idx]
@@ -47,7 +65,7 @@ model.learn_many(df)
 # model = Tdx(14, 0.6, 1, 2, cache_size=4125, grace_period=4125, seed=32, verbose=True, n_start_points=1)
 counter = 0
 for x in ds:
-    density = model.predict_one(x)
+    density = model.predict_density_one(x)
     #model.learn_one(x)
     counter = counter + 1
     if counter == len(x_train):
@@ -72,7 +90,7 @@ pred_dens = model.pdf(x_grid, t_test)
 
 x_many_test = np.tile(x_grid.reshape(1, x_grid.shape[0]), (t_test.shape[0], 1))
 df = pd.concat((pd.DataFrame({'timestamp': t_test}), pd.DataFrame(x_grid)), axis=1)
-pred_dens2 = model.predict_many(df)
+pred_dens2 = model.predict_density_many(df)
 
 
 time_idxs = [0, math.ceil(x_test.shape[0] / 2), x_test.shape[0] - 1]

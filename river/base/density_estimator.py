@@ -25,7 +25,7 @@ class DensityEstimator(estimator.Estimator):
         """
 
     @abc.abstractmethod
-    def predict_one(self, x: dict) -> float:
+    def predict_density_one(self, x: dict) -> float:
         """Predicts the density of a set of features `x`.
         Parameters
         ----------
@@ -55,7 +55,7 @@ class MiniBatchDensityEstimator(DensityEstimator):
         """
 
     @abc.abstractmethod
-    def predict_many(self, X: pd.DataFrame) -> pd.DataFrame:
+    def predict_density_many(self, X: pd.DataFrame) -> pd.DataFrame:
         """Predict the outcome for each given sample.
         Parameters
         ---------

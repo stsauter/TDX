@@ -43,4 +43,3 @@ class WeightDriftStream(SkewNormalDriftStream):
             np.linspace(0.7, 0.1, n_segments)
         ])
         self._mixture_coefs = np.append(self._mixture_coefs, [1 - np.sum(self._mixture_coefs, axis=0)], axis=0)
-        self._generate_data()

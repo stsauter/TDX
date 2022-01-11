@@ -39,4 +39,3 @@ class StaticSkewNormalsDriftStream(SkewNormalDriftStream):
         self._scale = np.tile(1, (self._n_components, n_segments))
         self._shape = self._repeat_segment_values([3, 2, 0.8, 2])
         self._mixture_coefs = np.tile(1 / self._n_components, (self._n_components, n_segments))
-        self._generate_data()

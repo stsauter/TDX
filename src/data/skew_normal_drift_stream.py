@@ -63,6 +63,23 @@ class SkewNormalDriftStream(BaseDriftStream):
          """
         return self._support
 
+    def __iter__(self):
+        params = self._get_distribution_params()
+        for i in range(self._n_segments):
+            n_seg_samples = np.rint(self.n_samples * (self._mixture_coefs[:, i] * self._seg_data_per[i])).astype(int)
+            t_s = i * self._segment_length
+            for j in range(self._n_components):
+                pd = SkewNormal(params[j, i].xi, params[j, i].omega, params[j, i].alpha, self._seed)
+                self._pds[j, i] = pd
+                if self._support is not None:
+                    pd.truncate(self._support[0], self._support[1])
+                sampled_x = pd.generate_random_numbers(n_seg_samples[j])
+                for x_val in sampled_x:
+                    x = dict()
+                    x['timestamp'] = t_s
+                    x['value'] = x_val
+                    yield x
+
     def _generate_data(self):
         params = self._get_distribution_params()
         for i in range(self._n_segments):

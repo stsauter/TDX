@@ -32,9 +32,6 @@ class BaseDriftStream(base.SyntheticDataset):
         self._seg_data_per = np.tile(1 / n_segments, n_segments)
         self._pds = np.empty(shape=(self._n_components, self._n_segments), dtype=object)
         self._mixture_coefs = np.zeros((self._n_components, self._n_segments))
-        self._x = np.array([])
-        self._t = np.array([])
-        self._c = np.array([])
 
     @property
     def n_segments(self):
@@ -58,48 +55,8 @@ class BaseDriftStream(base.SyntheticDataset):
          """
         return self._n_components
 
-    @property
-    def x(self):
-        """Return data points of the data stream.
-
-         Returns
-         -------
-         numpy.ndarray of shape (n_samples,):
-             Data points of the data stream.
-         """
-        return self._x
-
-    @property
-    def t(self):
-        """Return array containing time segments.
-
-         Returns
-         -------
-         numpy.ndarray of shape (n_samples,):
-             Array containing the time segments of the data stream.
-         """
-        return self._t
-
-    @property
-    def c(self):
-        """Return array containing the streaming components.
-
-         Returns
-         -------
-         numpy.ndarray of shape (n_samples,):
-             Array containing the component numbers which have generated the corresponding data points.
-         """
-        return self._c
-
-    def __iter__(self):
-        for i, x_val in enumerate(self._x):
-            x = dict()
-            x['timestamp'] = self._t[i]
-            x['value'] = x_val
-            yield x
-
     @abstractmethod
-    def _generate_data(self):
+    def __iter__(self):
         raise NotImplementedError
 
     def _repeat_segment_values(self, values):

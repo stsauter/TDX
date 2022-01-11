@@ -542,7 +542,7 @@ class Tdx(MiniBatchDensityEstimator):
         plt.plot(self.orig_timestamps, bla[1, :], 'g+')
         plt.show()
 
-    def predict_one(self, x: dict):
+    def predict_density_one(self, x: dict):
         if self._partial_fit_counter == 0:
             return 0
         t_pred = np.array([x['timestamp']])
@@ -552,7 +552,7 @@ class Tdx(MiniBatchDensityEstimator):
                 break
         return self.pdf(x_pred, t_pred)[0, 0]
 
-    def predict_many(self, X: pd.DataFrame):
+    def predict_density_many(self, X: pd.DataFrame):
         t = X[X['timestamp'].notnull()]['timestamp'].to_numpy()
         for column in X:
             if column != 'timestamp':

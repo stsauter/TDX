@@ -48,4 +48,3 @@ class MeanDriftStream(SkewNormalDriftStream):
             np.tile(2, n_segments)
         ])
         self._mixture_coefs = np.tile(1 / self._n_components, (self._n_components, n_segments))
-        self._generate_data()
